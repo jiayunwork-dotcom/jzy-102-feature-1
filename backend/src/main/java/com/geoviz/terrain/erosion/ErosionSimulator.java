@@ -178,6 +178,9 @@ public class ErosionSimulator {
             posY = newY;
             water *= 1 - p.evaporateRate();
             step++;
+            // 成功走完一步后才登记这次流经：越界尝试不构成实际一步，
+            // 因此汇流场总次数与返回的实际总步数严格一致（守恒）。
+            listener.onStepPosition(index, step, posX, posY);
         }
 
         // 雨滴消亡：把剩余泥沙全部摊回当前位置，保证整图质量守恒

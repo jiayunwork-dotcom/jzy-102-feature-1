@@ -1,14 +1,17 @@
 <template>
   <div ref="container" class="terrain-viewer">
+    <!-- 场景就绪后渲染插槽子组件（如汇流场叠加层），由它们自行向场景添加网格 -->
+    <slot v-if="sceneReady" />
     <div v-if="!heightmap" class="viewer-placeholder">暂无地形数据 — 请在左侧生成</div>
     <div class="viewer-hint">左键旋转 · 滚轮缩放 · 右键平移</div>
   </div>
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { TerrainSceneKey } from './terrainContext.js'
 
 const props = defineProps({
   // 长度为 resolution^2 的高度数组（行优先），null 表示还没有数据
@@ -21,6 +24,15 @@ const props = defineProps({
 
 const WORLD_SIZE = 100
 const HEIGHT_SCALE = 26
+
+// 向插槽子组件暴露场景与地形布局常量（高度归一化方式双方一致：
+// y = (h - min)/range * HEIGHT_SCALE，世界坐标 x/z = i/(res-1)*W - W/2）
+const sceneReady = ref(false)
+provide(TerrainSceneKey, {
+  getScene: () => scene,
+  worldSize: WORLD_SIZE,
+  heightScale: HEIGHT_SCALE
+})
 
 const container = ref(null)
 let renderer
@@ -70,6 +82,7 @@ function init() {
   resizeObserver = new ResizeObserver(handleResize)
   resizeObserver.observe(el)
 
+  sceneReady.value = true
   animate()
 }
 

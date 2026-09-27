@@ -23,6 +23,20 @@ public interface DropletListener {
     }
 
     /**
+     * 雨滴成功走完一步后回调其到达的位置（紧跟移动与步进计数之后）。
+     *
+     * 汇流量场借此把每一步记为对到达格点的一次流经：一颗雨滴实际走了多少步，
+     * 这个回调就被触发多少次——滑出地图的那次尝试不构成实际一步、不会触发，
+     * 因此整图流经次数之和恰好等于全部雨滴的实际总步数。
+     *
+     * @param step 刚走完的这一步的序号（从 1 开始）
+     * @param posX 这一步到达位置的 x 坐标（保证在 [0, resolution-1) 内）
+     * @param posY 这一步到达位置的 y 坐标（保证在 [0, resolution-1) 内）
+     */
+    default void onStepPosition(int dropletIndex, int step, double posX, double posY) {
+    }
+
+    /**
      * 雨滴消亡时回调。
      *
      * @param reason evaporated（水量蒸发到阈值以下）/ steps_exhausted（步数耗尽）/ out_of_bounds（滑出地图）

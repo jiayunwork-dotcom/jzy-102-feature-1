@@ -175,7 +175,12 @@ function setParams(savedNoise, savedErosion) {
   if (savedErosion) Object.assign(erosion, savedErosion)
 }
 
-defineExpose({ setParams })
+/** 读取面板当前的侵蚀参数（演进时间线「再推进一轮」时复用，避免重复一套控件）。 */
+function getErosionParams() {
+  return { ...erosion }
+}
+
+defineExpose({ setParams, getErosionParams })
 </script>
 
 <style scoped>

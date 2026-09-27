@@ -40,6 +40,30 @@ cd backend && mvn test
    （进程重启即丢失，不做持久化）；
 6. 每轮侵蚀后面板显示整图总高度变化 —— 质量守恒偏差只有浮点误差量级。
 
+### 侵蚀演进时间线（右侧面板）
+
+单轮侵蚀每次都要把整张地图发给后端、结果之间互不相干。**演进**把反复冲刷
+变成一条由服务端掌管的、有先后顺序的链：
+
+1. **开启演进**：以当前画面的地形作为第 0 帧，拿到一条链的标识；
+2. **再推进一轮**：前端只说「用这组侵蚀参数再冲一轮」，后端在自己保存的
+   当前帧上接着算，把新地形、汇流场、参数、统计追加为链尾新帧——高度数据
+   不再往返浏览器；
+3. **帧时间线**：能看到走到了第几帧、每一帧当时用的参数；点任意帧号即可
+   跳回那帧查看（推进仍追加在链尾，不改变历史）；
+4. **岔出分支**：从正在查看的任一历史帧岔出一条独立新链，换组参数走另一种
+   走向；新链之后的帧只属于它自己，父链逐帧原样不动。链列表里写清了
+   「从哪条链的第几帧岔出」；
+5. **汇流场叠加**：勾选后在三维地形上叠加河网——每轮每颗雨滴每走一步给
+   到达格点记一次流经，上游汇水越多颜色越亮，河道连成脉络；
+6. **河网稳态**：随着固定参数下一轮轮推进，后端持续维护累计汇流场并报告
+   相邻两帧的整体变化幅度；当它降到阈值（默认 0.02）以下即判为**已收敛到
+   河网稳态**，面板同时给出当前变化幅度与「还差多少」；
+7. **导出快照**：链上任意一帧都能另存为命名静态结果，单独留档。
+
+演进链是服务端进程内的活数据，进程重启即丢；进程存活期间链、帧与分支
+关系稳定存取。
+
 ## 仓库结构
 
 ```
@@ -49,21 +73,32 @@ backend/                          Java 17 + Spring Boot
     noise/NoiseParams.java
     erosion/ErosionSimulator.java 雨滴式水力侵蚀核心（单线程、种子可控、质量守恒）
     erosion/ErosionParams.java
-    erosion/DropletListener.java  雨滴生命周期监听（测试用来观测不变量）
+    erosion/DropletListener.java  雨滴生命周期监听（含逐位置回调，供汇流场统计）
     erosion/ErosionResult.java / ErosionStats.java
+    flow/FlowAccumulator.java     汇流场：雨滴每步给到达格点记一次流经（独立模块）
+    flow/FlowMetrics.java         汇流场整体变化幅度（归一化总变差距离）
+    steady/SteadyStateDetector.java 河网稳态判定（变化幅度 ≤ 阈值；独立模块）
+    steady/SteadyState.java
+    evolution/EvolutionService.java 演进链状态管理：开启/推进/分支/查询/导出（独立模块）
+    evolution/EvolutionChain.java / EvolutionFrame.java
+    evolution/EvolutionNotFoundException.java
     snapshot/SnapshotStore.java   快照存取：内存键值存储，按名存取
     snapshot/Snapshot.java / SnapshotMeta.java
     validation/ParameterValidator.java  参数校验：计算前拦截非法参数
     validation/InvalidParameterException.java
     api/TerrainController.java    POST /api/terrain/generate · /api/terrain/erode
     api/SnapshotController.java   POST/GET /api/snapshots[/{name}]
-    api/ApiExceptionHandler.java  非法参数 → 400 + 具体原因
+    api/EvolutionController.java  演进链 REST（开启/推进/查链查帧/分支/稳态/导出）
+    api/ApiExceptionHandler.java  非法参数 → 400、链/帧不存在 → 404，均带具体原因
   src/test/java/...               锁定核心不变量的自动化测试（见下）
 frontend/                         Vue 3 + Three.js + Vite
   src/components/TerrainViewer.vue   三维渲染：网格、轨道相机、方向光、分层着色
   src/components/ParameterPanel.vue  参数面板：滑块、按钮、快照入口
+  src/components/EvolutionPanel.vue  演进操作面：链/时间线/分支/稳态/导出（独立组件）
+  src/components/FlowOverlay.vue     汇流场河网叠加：注入场景的半透明网格（独立组件）
+  src/components/terrainContext.js   TerrainViewer 向叠加层暴露 Three.js 场景的注入键
   src/api/terrainApi.js              与后端的全部请求交互
-  src/App.vue                        状态编排（当前高度场、快照、统计）
+  src/App.vue                        状态编排（当前高度场、快照、演进链、查看帧）
 docker-compose.yml               一并拉起前后端，暴露 http://localhost
 ```
 
@@ -83,6 +118,12 @@ docker-compose.yml               一并拉起前后端，暴露 http://localhost
    （water ×= 1 − 蒸发率）；
 5. 水量低于阈值、步数耗尽或滑出地图时消亡，消亡前把剩余泥沙全部摊回地表。
 
+**汇流场（河网）**：演进每推进一轮，挂在模拟过程上的汇流统计器在每颗雨滴
+成功走完一步后，给它到达的格点记一次流经。上游汇下来的水越多，格点数值
+越高，河道便在这张场上连成高值脉络；整场合计恰好等于这一轮全部雨滴实际
+走过的步数。链上再把各轮场逐轮累加为累计汇流场，作为河网是否稳定的判据
+（见上文「汇流场与稳态判据」）。
+
 ## 自动化测试锁住的不变量
 
 `backend/src/test/java/com/geoviz/terrain/`：
@@ -96,6 +137,24 @@ docker-compose.yml               一并拉起前后端，暴露 http://localhost
 | 噪声层数调多 → 地表梯度整体波动幅度上升 | `NoiseGeneratorTest.moreOctavesIncreaseGradientVariation` |
 | 分辨率/层数/衰减系数越界、速率为负等 → 计算前带原因拒绝 | `ParameterValidatorTest`、`TerrainApiTest` |
 | 快照按名存取、同名覆盖、列表元信息 | `SnapshotStoreTest`、`TerrainApiTest` |
+| **演进逐帧可复现**：同初始场、同参数序列（含种子）重放，每一帧高度场与汇流场逐比特一致 | `EvolutionServiceTest.replayWithSameParamsAndSeedReproducesEveryFrameBitForBit` |
+| **分支隔离**：岔出新分支并推进后，父链被岔帧及其后每一帧逐比特原样，帧数不变 | `EvolutionServiceTest.branchingAndAdvancingBranchLeavesParentChainUntouched` |
+| **汇流场守恒可解释**：每帧逐轮汇流场总和恰好等于该轮雨滴实际总步数，且各格点为非负整数 | `FlowAccumulatorTest.flowFieldSumsExactlyToActualDropletSteps`、`EvolutionServiceTest.everyAdvancedFrameFlowSumsToItsActualDropletSteps` |
+| **稳态单调靠拢**：累计汇流场变化幅度跨阈值前逐轮不增，跨过即判稳态且不再上穿；steady ⟺ change ≤ 阈值 | `SteadyStateConvergenceTest.flowChangeNarrowsMonotonicallyAndCrossesThresholdOnce` |
+| 不存在的链/帧、越界帧序号、推进给非法参数 → 计算前带原因拒绝（404/400） | `EvolutionServiceTest`、`EvolutionApiTest` |
+| 演进接口完整往返：开启→推进→查链/查帧→分支→稳态→导出快照 | `EvolutionApiTest.fullEvolutionLifecycleThroughApi` |
+
+### 汇流场与稳态判据（实现说明）
+
+- **逐轮汇流场**：挂在侵蚀过程上的 `FlowAccumulator` 在每颗雨滴**成功走完一步后**
+  把到达格点的流经次数加一。滑出地图的那次尝试不构成实际一步、不计数，因此
+  整场合计与 `ErosionStats.totalSteps` 严格相等（守恒）。
+- **累计汇流场与稳态**：受驱耗散系统即便河网宏观稳定，单滴微观路径仍会逐轮
+  抖动（直接比较逐轮场会被这种固有涨落主导）。链因此另维护一张逐轮累加的
+  累计汇流场——对河网的运行时最佳估计；每多跑一轮，它只被稀释约 1/n，
+  相邻两帧累计场的归一化总变差距离天然随轮次收窄到 0，低于阈值即判稳态。
+  每帧的 `flowChange` 记的就是这个量。
+- 阈值可经配置项 `terrain.steady-threshold`（默认 0.02）调整。
 
 > 实现备注：携带能力刻意**不**直接乘落差（只通过速度积分间接体现坡度），
 > 否则「坑越深 → 侵蚀越狠」的正反馈会让多轮模拟发散；侵蚀用刷子分摊、
@@ -111,6 +170,15 @@ docker-compose.yml               一并拉起前后端，暴露 http://localhost
 | POST | `/api/snapshots` | 命名保存当前高度场与参数 |
 | GET | `/api/snapshots` | 列出全部快照（元信息） |
 | GET | `/api/snapshots/{name}` | 取回某份快照的完整数据 |
+| POST | `/api/evolution` | 以起始高度场开启演进链，返回链标识（201） |
+| GET | `/api/evolution` | 列出全部演进链（帧数、分支血缘、稳态摘要） |
+| GET | `/api/evolution/{chainId}` | 链详情：帧序、每帧参数/统计/汇流变化、分支血缘 |
+| POST | `/api/evolution/{chainId}/advance` | 只提交侵蚀参数推进一轮，返回新帧与稳态结论 |
+| GET | `/api/evolution/{chainId}/frames/{i}` | 单独取回第 i 帧（地形 + 逐轮汇流场 + 参数） |
+| POST | `/api/evolution/{chainId}/branch` | 从指定帧岔出独立新分支（201） |
+| GET | `/api/evolution/{chainId}/steady` | 河网稳态结论：steady、当前变化幅度、阈值 |
+| POST | `/api/evolution/{chainId}/frames/{i}/snapshot` | 把第 i 帧导出为命名快照（201） |
 
 参数非法（分辨率越界、层数/衰减系数不合理、速率为负、高度场长度不符等）
-一律在计算前返回 `400 {"error": "具体原因"}`。
+一律在计算前返回 `400 {"error": "具体原因"}`；引用不存在的演进链或帧、
+从越界帧序号岔分支返回 `404 {"error": "具体原因"}`。
