@@ -131,9 +131,13 @@ public class ErosionSimulator {
             double newX = posX + dirX;
             double newY = posY + dirY;
             if (newX < 0 || newX >= res - 1 || newY < 0 || newY >= res - 1) {
+                // 滑出地图不是实际的一步：不计步、不产生汇流贡献
                 reason = "out_of_bounds";
                 break;
             }
+            // 这次移动确认为实际的一步：雨滴此刻正流经 (x0, y0) 格。
+            // 回调总次数恒等于本雨滴的存活步数，全轮合计等于 stats.totalSteps。
+            listener.onTraverse(index, step, x0, y0);
 
             // ---- 新位置高度（双线性插值）----
             int nx0 = (int) newX;

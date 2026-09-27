@@ -53,3 +53,43 @@ export function saveSnapshot(payload) {
 export function loadSnapshot(name) {
   return request('/snapshots/' + encodeURIComponent(name))
 }
+
+// ---- 服务端掌管的侵蚀演进 ----
+
+/** 用一张起始高度场开启一段演进，拿到可一直引用的链标识。 */
+export function startEvolution(resolution, heightmap, noise) {
+  return post('/evolutions', { resolution, heightmap, noise: noise ?? null })
+}
+
+export function listEvolutions() {
+  return request('/evolutions')
+}
+
+export function getEvolution(chainId) {
+  return request('/evolutions/' + encodeURIComponent(chainId))
+}
+
+/** 只说一句「再推进一轮，用这组参数」，不回传高度数据。 */
+export function advanceEvolution(chainId, erosionParams) {
+  return post('/evolutions/' + encodeURIComponent(chainId) + '/advance', { erosion: erosionParams })
+}
+
+/** 从链上任意历史帧岔出一条独立分支。 */
+export function branchEvolution(chainId, frameIndex) {
+  return post('/evolutions/' + encodeURIComponent(chainId) + '/branch', { frameIndex })
+}
+
+/** 单独取回某一帧（地形 + 累积汇流场 + 本轮流经场）。 */
+export function getEvolutionFrame(chainId, frameIndex) {
+  return request(
+    '/evolutions/' + encodeURIComponent(chainId) + '/frames/' + frameIndex
+  )
+}
+
+/** 把任意一帧导出成命名快照留档。 */
+export function exportEvolutionFrameSnapshot(chainId, frameIndex, name) {
+  return post(
+    '/evolutions/' + encodeURIComponent(chainId) + '/frames/' + frameIndex + '/snapshot',
+    { name }
+  )
+}

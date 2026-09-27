@@ -9,6 +9,7 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { HEIGHT_SCALE, WORLD_SIZE, heightRange } from '../terrainGeometry.js'
 
 const props = defineProps({
   // 长度为 resolution^2 的高度数组（行优先），null 表示还没有数据
@@ -19,8 +20,9 @@ const props = defineProps({
   lightElevation: { type: Number, default: 50 }
 })
 
-const WORLD_SIZE = 100
-const HEIGHT_SCALE = 26
+// 把三维上下文（场景/相机）向外暴露，供独立的汇流场叠加层挂载自己的对象，
+// 叠加层的逻辑全部在 FlowOverlay.vue 中，本组件不参与汇流渲染。
+const emit = defineEmits(['ready'])
 
 const container = ref(null)
 let renderer
@@ -70,6 +72,8 @@ function init() {
   resizeObserver = new ResizeObserver(handleResize)
   resizeObserver.observe(el)
 
+  emit('ready', { scene, camera })
+
   animate()
 }
 
@@ -105,13 +109,7 @@ function rebuildTerrain() {
   const res = props.resolution
   if (!h || !res) return
 
-  let min = Infinity
-  let max = -Infinity
-  for (const v of h) {
-    if (v < min) min = v
-    if (v > max) max = v
-  }
-  const range = Math.max(max - min, 1e-9)
+  const { min, range } = heightRange(h)
 
   const geometry = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, res - 1, res - 1)
   geometry.rotateX(-Math.PI / 2)

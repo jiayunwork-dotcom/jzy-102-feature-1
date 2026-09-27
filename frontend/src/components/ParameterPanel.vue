@@ -175,7 +175,12 @@ function setParams(savedNoise, savedErosion) {
   if (savedErosion) Object.assign(erosion, savedErosion)
 }
 
-defineExpose({ setParams })
+/** 供演进面板读取当前面板上的参数（演进推进只需要侵蚀参数）。 */
+function getParams() {
+  return { noise: { ...noise }, erosion: { ...erosion } }
+}
+
+defineExpose({ setParams, getParams })
 </script>
 
 <style scoped>
